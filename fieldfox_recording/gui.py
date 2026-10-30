@@ -1,10 +1,17 @@
-"""Small Tkinter front end using the same reader, selection and exports as CLI."""
+"""Tkinter viewer: run as a module or directly as python fieldfox_recording/gui.py."""
 from __future__ import annotations
 
 from pathlib import Path
 import queue
 import threading
 from typing import Any, Callable
+
+# IDE Run File and double-click launches do not set the package context.
+# Anchor imports to this checkout, independent of the current directory.
+if not __package__:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    __package__ = "fieldfox_recording"
 
 from .parser import FieldFoxRecording, RecordingError
 from .spectrogram import load_section, plot_section

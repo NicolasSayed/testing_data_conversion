@@ -13,6 +13,8 @@ The user reports that the preceding Python build works with their recordings.
 
 **Version 0.3.0 adds a Tkinter GUI, native MATLAB scripts, selected-data MAT
 exports and UTC/EST/Eastern timestamps.** The original CLI remains available.
+Version 0.3.1 also supports launching `fieldfox_recording/gui.py` directly
+from an IDE or another working directory.
 
 **Version 0.2.0 adds RTSA AutoSession trace decoding.** The original release
 rejected RTSA. The added path recognizes application code 2 in recording
@@ -45,6 +47,10 @@ python -m fieldfox_recording gui
 
 Or run `python scripts/fieldfox_gui.py`. Python must include Tkinter.
 The installed `fieldfox-viewer` launcher opens it without a console on Windows.
+Direct execution with `python fieldfox_recording/gui.py` or an IDE's Run File
+button works too. Keep the entire repository together; `gui.py` uses the other
+modules in `fieldfox_recording`. The direct launchers use the code beside them,
+even if an older version of the package was installed previously.
 Browse to the complete `RTAUTOsessionXX` folder, set the sweep range,
 frequency limits in MHz, trace slot and color limits, then click
 **Load / update plot**. The toolbar supports pan and zoom. Buttons export
