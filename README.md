@@ -238,6 +238,42 @@ NPZ contains `power_dbm_traces`, `auxiliary_values`, `timestamp_ticks`,
 `numpy.load(path, allow_pickle=False)`. Each sweep uses the axis selected by its
 state ID. NPZ export needs temporary disk space near the uncompressed data size.
 
+## How the decoder was developed
+
+The workflow used **ILSpy/ilspycmd 9.1.0.7988**, PE inspection with `pefile`,
+string/metadata searches and offline help extraction with 7-Zip. Ghidra was
+not used: the relevant readers are managed .NET assemblies. Data Link itself
+was never installed or executed. The supplied input was an already-unpacked
+Data Link 8.2.9762.18414 program tree; no original installer container was supplied.
+
+1. Inventory the supplied files, check signatures and PE/CLR metadata, record
+   versions and SHA-256 hashes, and preserve the originals.
+2. Follow the session-to-CSV command in `FFoxDataLink.exe` through GPSA's
+   `aef.kj` / `adg.or`. Decompile the relevant types into readable C# with ILSpy.
+3. Recover state and trace layouts from `Utility.dll`'s `als.qm` / `alt.qm`,
+   cross-check their writers and size functions, and trace `apf` / `aqb` for
+   numbered partition files and RPX indexes. Cross-check read order against
+   writes and size calculations to establish field widths and record boundaries.
+4. Follow GPSA's `aef.kg` CSV path to establish axes and units. Separately trace
+   RTSA's `a7.b` / `a7.d` loader and `bw.bj` / `bw.am` / `bw.w` playback path.
+   Folder prefixes and plausible-looking numbers alone are not format evidence.
+5. Implement independent Python and MATLAB parsers from those layouts, retaining
+   unknown fields and rejecting unsupported interpretations. Compare synthetic
+   fixtures across readers, exports, timestamp conversions and plots; include
+   malformed-input and boundary tests.
+
+These are version-specific, obfuscated symbol names, not stable vendor APIs.
+Static code establishes the reconstructed layout; synthetic tests verify the
+implementation, not numerical agreement with an actual instrument or Data Link
+CSV. The user's report that the decoder works is recorded separately from local
+verification. EST is a user-supplied clock assumption, not a decoded time-zone field.
+
+For repeat analysis, decompile one relevant type at a time, enforce timeouts,
+monitor memory and verify child processes exit. An earlier bulk decompilation
+was stopped after excessive memory growth; full-project decompilation is not
+needed to use or maintain the decoder. Licensed binaries and decompiled outputs
+stay outside this repository.
+
 ## Limits and validation
 
 Multiple-block or zero-span RTSA, raw IQ/VITA-49 captures, saved RTSA XML traces,
