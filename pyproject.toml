@@ -4,17 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fieldfox-recording"
-version = "0.2.0"
+version = "0.3.0"
 description = "Independent FieldFox GPSA/RTSA recorded spectrum trace decoder"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
-plot = ["matplotlib>=3.6"]
+plot = ["matplotlib>=3.6", "scipy>=1.10", "tzdata>=2024.1"]
+mat = ["scipy>=1.10", "tzdata>=2024.1"]
 
 [project.scripts]
 fieldfox-recording = "fieldfox_recording.__main__:main"
+
+[project.gui-scripts]
+fieldfox-viewer = "fieldfox_recording.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["fieldfox_recording*"]

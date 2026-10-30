@@ -31,6 +31,7 @@ class SpectrogramSection:
     trace_slot: int
     first_timestamp: str
     effective_step: int
+    timestamp_ticks: NDArray[np.int64]
 
 
 def load_section(
@@ -91,12 +92,13 @@ def load_section(
     # Subtract int64 ticks before conversion to preserve fine time differences.
     elapsed = (ticks - ticks[0]).astype(np.float64) / 10_000_000
     return SpectrogramSection(axis[mask], elapsed, power, indices,
-                              trace_slot, first_timestamp, effective_step)
+                              trace_slot, first_timestamp, effective_step, ticks)
 
 
 def plot_section(
     section: SpectrogramSection, *, title: str = "FieldFox recording section",
     vmin: float | None = None, vmax: float | None = None, cmap: str = "viridis",
+    figure: Any | None = None,
 ) -> tuple[Any, Any]:
     """Return Matplotlib figure/axes with frequency in MHz and power in dBm."""
     try:
@@ -109,7 +111,10 @@ def plot_section(
         raise RecordingError("vmin must be less than vmax")
     if cmap not in plt.colormaps():
         raise RecordingError(f"Unknown Matplotlib colormap: {cmap}")
-    fig, ax = plt.subplots(figsize=(11, 6), layout="constrained")
+    if figure is None:
+        fig, ax = plt.subplots(figsize=(11, 6), layout="constrained")
+    else:
+        fig, ax = figure, figure.subplots()
     chart = ax.pcolormesh(section.frequency_hz / 1e6, section.elapsed_s,
                          np.ma.masked_invalid(section.power_dbm), shading="nearest",
                          cmap=cmap, vmin=vmin, vmax=vmax, rasterized=True)
@@ -135,7 +140,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--vmin", type=float, help="Lower color limit in dBm")
     parser.add_argument("--vmax", type=float, help="Upper color limit in dBm")
     parser.add_argument("--cmap", default="viridis", help="Matplotlib colormap")
-    parser.add_argument("--output", help="Save to a new PNG, PDF or other Matplotlib image file")
+    parser.add_argument("--output", help="Save an image; a .mat suffix instead exports selected data")
+    parser.add_argument("--export-mat", help="Export the selected data to a new MATLAB .mat file")
+    parser.add_argument("--source-timezone", default="EST", help="Assumed instrument clock zone (default EST, fixed -05:00); also UTC, America/New_York, +/-HH:MM or another IANA name")
+    parser.add_argument("--dst-fold", type=int, choices=[0, 1], help="For repeated local times: 0=earlier occurrence, 1=later")
     parser.add_argument("--show", action="store_true", help="Show interactive window even when saving an image")
 
 
@@ -145,23 +153,40 @@ def run(args: argparse.Namespace) -> int:
     section = load_section(rec, start_sweep=args.start_sweep, stop_sweep=args.stop_sweep,
                            step=args.step, max_sweeps=args.max_sweeps, freq_min_hz=args.freq_min_hz,
                            freq_max_hz=args.freq_max_hz, trace_slot=args.trace_slot)
-    fig, _ = plot_section(section, title=rec.path.name, vmin=args.vmin, vmax=args.vmax, cmap=args.cmap)
-    import matplotlib.pyplot as plt
+    mat_output = args.export_mat
+    image_output = args.output
+    if image_output and Path(image_output).suffix.lower() == ".mat":
+        if mat_output:
+            raise RecordingError("Use only one .mat destination: --output FILE.mat or --export-mat FILE.mat")
+        mat_output, image_output = image_output, None
+    if mat_output:
+        from .matlab import save_section_mat
+        save_section_mat(rec, section, mat_output, source_timezone=args.source_timezone, dst_fold=args.dst_fold)
+        print(f"Saved selected data to {mat_output}")
+        if not args.source_timezone:
+            print("UTC/EST/Eastern fields are empty: set --source-timezone to interpret the instrument clock.")
+    show = args.show or not (image_output or mat_output)
+    fig = None
     try:
-        if args.output:
+        if image_output or show:
+            fig, _ = plot_section(section, title=rec.path.name, vmin=args.vmin, vmax=args.vmax, cmap=args.cmap)
+        if image_output:
             from .export import _destination
-            with _destination(rec, args.output) as temporary:
-                fmt = Path(args.output).suffix.lstrip(".").lower() or "png"
+            with _destination(rec, image_output) as temporary:
+                fmt = Path(image_output).suffix.lstrip(".").lower() or "png"
                 fig.savefig(temporary, format=fmt, dpi=160)
-        print(f"Displayed {len(section.sweep_indices)} sweeps x {len(section.frequency_hz)} frequency bins; "
+        print(f"Selected {len(section.sweep_indices)} sweeps x {len(section.frequency_hz)} frequency bins; "
               f"sweeps {section.sweep_indices[0]}..{section.sweep_indices[-1]}, row step {section.effective_step}")
-        if args.output:
-            print(f"Saved {args.output}")
-        if args.show or not args.output:
+        if image_output:
+            print(f"Saved {image_output}")
+        if show:
+            import matplotlib.pyplot as plt
             plt.show()
         return 0
     finally:
-        plt.close(fig)
+        if fig is not None:
+            import matplotlib.pyplot as plt
+            plt.close(fig)
 
 
 def main(argv: list[str] | None = None) -> int:

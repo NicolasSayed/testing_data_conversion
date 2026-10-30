@@ -1,14 +1,18 @@
 # testing_data_conversion
 
-Independent Python decoder for FieldFox SA/GPSA and RTSA recorded trace sessions,
+Independent Python and MATLAB decoders for FieldFox SA/GPSA and RTSA recorded trace sessions,
 targeting recordings from a **Keysight N9917B**. It reads session directories
 directly, exports CSV or NumPy NPZ, and views selected sections as Matplotlib
 spectrograms/waterfalls without installing or running Data Link.
 
 **Status: initial decoder reconstructed by static analysis.** Before publication,
-111 local synthetic tests passed and one real-recording integration test was
+127 local synthetic tests passed and one real-recording integration test was
 skipped. No N9917B recording or matching reference CSV was available, so actual
-instrument compatibility and export equivalence are still unvalidated.
+instrument compatibility and export equivalence are still unvalidated locally.
+The user reports that the preceding Python build works with their recordings.
+
+**Version 0.3.0 adds a Tkinter GUI, native MATLAB scripts, selected-data MAT
+exports and UTC/EST/Eastern timestamps.** The original CLI remains available.
 
 **Version 0.2.0 adds RTSA AutoSession trace decoding.** The original release
 rejected RTSA. The added path recognizes application code 2 in recording
@@ -28,13 +32,39 @@ python -m pip install ".[plot]"
 ```
 
 On Windows, `py -3.11` can be used instead of `python`. Decoding needs NumPy;
-the optional `plot` extra adds Matplotlib. For decoding alone, install with
-`python -m pip install .`. Viewing and decoding work offline after installation.
+the optional `plot` extra adds Matplotlib, SciPy for MAT export, and time-zone
+data. For decoding alone, install with `python -m pip install .`; MAT export
+alone uses `.[mat]`. Viewing and decoding work offline after installation.
+Update an existing checkout with `git pull`, then repeat the install command.
+
+## Tkinter viewer
+
+```bash
+python -m fieldfox_recording gui
+```
+
+Or run `python scripts/fieldfox_gui.py`. Python must include Tkinter.
+The installed `fieldfox-viewer` launcher opens it without a console on Windows.
+Browse to the complete `RTAUTOsessionXX` folder, set the sweep range,
+frequency limits in MHz, trace slot and color limits, then click
+**Load / update plot**. The toolbar supports pan and zoom. Buttons export
+the selected data to `.mat`, save the plot image, or export the entire session
+as CSV/NPZ. Data reads and exports run in a worker thread.
+
+The instrument clock setting defaults to **EST, fixed UTC-05:00**, as specified
+by the user. It can be changed before MAT export. CSV and NPZ keep the original
+instrument clock.
 
 ## Command line
 
 Use the complete session directory, including every state, trace and index file
 that belongs to it. The directory name is arbitrary.
+
+For example, select `RTAUTOsession01`, containing
+`dSTA00000/00000000.STA` and `dTRC00000/00000000.TRC`,
+`dTRC00000/00000001.TRC`, etc. State files may increment too. Include all
+numbered files, starting at zero. The `RTAUTOsession` prefix does not identify
+the capture mode; the state header selects GPSA or RTSA.
 
 ```bash
 python -m fieldfox_recording inspect /path/to/session
@@ -83,7 +113,70 @@ select a shorter range on one side of the change. Zero-span traces have a time
 axis within each sweep and are not supported by this frequency waterfall.
 
 This displays the recorded spectrum sweeps directly. No FFT, STFT or assumed
-IQ sample rate is applied; SciPy is not required.
+IQ sample rate is applied. SciPy is used only when exporting MAT data.
+
+## Export selected data to MATLAB
+
+Save a section without opening a plot window:
+
+```bash
+python scripts/view_spectrogram.py /path/to/RTAUTOsession01 --start-sweep 100 --stop-sweep 500 --source-timezone EST --export-mat output/section.mat
+```
+
+`--output output/section.mat` is an alternative. To save an image and data
+together, use `--output output/section.png --export-mat output/section.mat`.
+Add `--show` to also open the interactive plot.
+
+The MAT file contains exactly the selected frequency bins and sweep rows,
+including any thinning from `--step` or `--max-sweeps`. Load it in MATLAB with
+`data = load('output/section.mat')`:
+
+| Variable | Meaning |
+|---|---|
+| `power_dbm` | Single matrix: rows are sweeps, columns are frequency bins |
+| `frequency_hz`, `elapsed_s` | Frequency and elapsed-time column vectors |
+| `sweep_indices`, `trace_slot`, `effective_step` | Original zero-based selection |
+| `timestamp_ticks` | Original int64 ticks, preserving 100 ns precision |
+| `timestamp_instrument` | Exact original clock strings without a time zone |
+| `timestamp_utc`, `timestamp_est`, `timestamp_eastern` | ISO timestamp column cell arrays |
+| `timestamp_ticks_utc` | Exact UTC ticks under the source-clock assumption |
+| `source_timezone`, `timestamp_conversion` | Explicit conversion assumption |
+| `metadata_json` | Recording metadata |
+
+The file format stores no time zone. **EST is the user's assumption**, not a
+recovered field. The default `--source-timezone EST` means fixed UTC-05:00.
+`timestamp_eastern` instead follows `America/New_York` daylight saving, so
+noon EST in summer becomes 17:00 UTC and 13:00 EDT. If the instrument followed
+local daylight-saving time, choose `--source-timezone America/New_York`.
+`UTC`, fixed `+HH:MM`/`-HH:MM` offsets and other IANA zones are accepted too.
+Repeated local times require `--dst-fold 0` (earlier) or `1` (later);
+nonexistent local times are rejected. Conversion preserves all seven fractional
+digits and the original ticks.
+
+## Simple MATLAB scripts
+
+These read the session directly in base MATLAB; no Python or Signal Processing
+Toolbox is needed. From this repository's root:
+
+```matlab
+addpath('matlab');
+folder = 'D:\data\RTAUTOsession01';
+data = read_fieldfox(folder, 'StartSweep', 100, 'StopSweep', 500);
+data = view_spectrogram(folder, 'StartSweep', 100, 'StopSweep', 500, ...
+    'SourceTimeZone', 'EST', 'OutputMat', 'section.mat');
+```
+
+Or edit the settings in `matlab/example_fieldfox.m` and run it. MATLAB sweep
+indices stay zero-based to match Python. `StopSweep` is exclusive; `Inf` means
+the session end. Reader options include `Step`, `MaxSweeps` (default 2000),
+`TraceSlot`, `FreqMinHz`, `FreqMaxHz`, `SourceTimeZone` and `DSTFold`.
+`ColorLimits`, such as `[-110 -50]`, and `Show` belong to the viewer.
+Use `'Show',false` to export without a figure. `MaxSweeps=Inf` disables row
+thinning, within the 20-million-selected-cell allocation limit.
+
+The returned struct contains power, axes, timestamps, auxiliary values, masks,
+state IDs and raw state headers. The simpler MATLAB reader validates physical
+lengths and selected record links; use Python `inspect` for RPX index CRC checks.
 
 ## Python API
 
@@ -155,9 +248,13 @@ which recording version or capture mode a particular session uses.
 Local tests covered version branches, endianness, timestamps, boundaries,
 state changes, multiple trace slots, zero span, malformed inputs, index checks,
 CSV/NPZ exports, section seeking, plot selection, PNG output and the shared
-RTSA record layout. Tests and synthetic fixtures are not included in this
-minimal publication. A complete finished N9917B **RTSA AutoSession** is needed for
-instrument validation; a matching CSV export would enable numerical comparison.
+RTSA record layout. Further checks cover MAT round trips, exact UTC/EST clock
+conversion, DST gaps/folds and an invisible Tkinter load/export workflow.
+MATLAB tests compare the native reader and Python MAT files on the same
+synthetic data. Tests and synthetic fixtures are not included in this
+minimal publication. A complete finished N9917B GPSA or supported RTSA session
+would enable local instrument validation; a matching CSV export would enable
+independent numerical comparison.
 
 This repository contains only the independent decoding scripts, package metadata
 and this README. No Data Link binaries, decompiled code, recordings, sample

@@ -1,4 +1,4 @@
-"""Run with python -m fieldfox_recording inspect|export|plot."""
+"""Run with python -m fieldfox_recording inspect|export|plot|gui."""
 from __future__ import annotations
 
 import argparse
@@ -10,6 +10,7 @@ from .parser import FieldFoxRecording, RecordingError, inspect_path
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent FieldFox GPSA/RTSA trace decoder (static reconstruction)")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("gui", help="Open the Tkinter recording viewer")
     inspect = sub.add_parser("inspect", help="Inspect file prefixes, states and trace boundaries")
     inspect.add_argument("path")
     export = sub.add_parser("export", help="Export a complete GPSA/RTSA trace session")
@@ -21,6 +22,9 @@ def main(argv: list[str] | None = None) -> int:
     add_arguments(plot)
     args = parser.parse_args(argv)
     try:
+        if args.command == "gui":
+            from .gui import main as gui_main
+            return gui_main()
         if args.command == "plot":
             return run(args)
         if args.command == "inspect":
