@@ -1,4 +1,4 @@
-"""Run with python -m fieldfox_recording inspect|export."""
+"""Run with python -m fieldfox_recording inspect|export|plot."""
 from __future__ import annotations
 
 import argparse
@@ -16,8 +16,13 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("path")
     export.add_argument("--format", choices=["csv", "npz"], required=True)
     export.add_argument("--output", required=True)
+    plot = sub.add_parser("plot", help="View a selected recording section as a Matplotlib waterfall")
+    from .spectrogram import add_arguments, run
+    add_arguments(plot)
     args = parser.parse_args(argv)
     try:
+        if args.command == "plot":
+            return run(args)
         if args.command == "inspect":
             result = inspect_path(args.path)
             print(json.dumps(result, indent=2, allow_nan=False))
@@ -26,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         getattr(rec, f"to_{args.format}")(args.output)
         print(f"Exported {len(rec)} sweeps, {rec.states[0].points} points, {rec.states[0].trace_count} trace(s) to {args.output}")
         return 0
-    except (RecordingError, OSError) as error:
+    except (RecordingError, OSError, ValueError) as error:
         print(f"fieldfox-recording: {error}", file=sys.stderr)
         return 2
 

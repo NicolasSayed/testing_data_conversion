@@ -2,10 +2,11 @@
 
 Independent Python decoder for FieldFox SA/GPSA Record/Playback sessions,
 targeting recordings from a **Keysight N9917B**. It reads session directories
-directly and exports CSV or NumPy NPZ without installing or running Data Link.
+directly, exports CSV or NumPy NPZ, and views selected sections as Matplotlib
+spectrograms/waterfalls without installing or running Data Link.
 
 **Status: initial decoder reconstructed by static analysis.** Before publication,
-72 local synthetic tests passed and one real-recording integration test was
+93 local synthetic tests passed and one real-recording integration test was
 skipped. No N9917B recording or matching reference CSV was available, so actual
 instrument compatibility and export equivalence are still unvalidated.
 
@@ -16,11 +17,12 @@ Requires Python 3.11 or newer.
 ```bash
 git clone https://github.com/NicolasSayed/testing_data_conversion.git
 cd testing_data_conversion
-python -m pip install .
+python -m pip install ".[plot]"
 ```
 
-On Windows, `py -3.11` can be used instead of `python`. NumPy is the only runtime
-dependency. Decoding works offline after installation.
+On Windows, `py -3.11` can be used instead of `python`. Decoding needs NumPy;
+the optional `plot` extra adds Matplotlib. For decoding alone, install with
+`python -m pip install .`. Viewing and decoding work offline after installation.
 
 ## Command line
 
@@ -40,6 +42,41 @@ available for individual state and index files.
 
 Exports refuse existing files and destinations inside the input session.
 Original recordings are never opened for writing.
+
+## View a spectrogram section
+
+Open an interactive Matplotlib window, showing sweeps 100 through 499:
+
+```bash
+python scripts/view_spectrogram.py /path/to/session --start-sweep 100 --stop-sweep 500
+```
+
+Use the toolbar to pan, zoom and save. The plot shows frequency in MHz,
+elapsed instrument time in seconds, and recorded power in dBm. Sweep indices
+are zero-based; start is inclusive and stop is exclusive.
+
+Select a frequency band and save an image without opening a window:
+
+```bash
+python -m fieldfox_recording plot /path/to/session --start-sweep 100 --stop-sweep 500 --freq-min-hz 902e6 --freq-max-hz 908e6 --vmin -110 --vmax -50 --output output/section.png
+```
+
+Add `--show` to both save and view. `--trace-slot 0` selects a stored trace;
+`--cmap viridis` controls colors. `--step 5` selects every fifth sweep.
+`--max-sweeps 2000` limits displayed rows by sampling original sweeps, without
+averaging. The title reports the actual selected indices and row step.
+For large plots, narrow the frequency band or lower `--max-sweeps`; the viewer
+rejects matrices above its rendering memory limit before allocating them.
+
+The viewer seeks directly to selected records and allocates only the selected
+frequency bins and rows. Unselected records are not validated; run `inspect`
+for full-session checks. A section needs at least two sweeps and two frequency
+bins, a common frequency axis, and increasing timestamps. For a settings change,
+select a shorter range on one side of the change. Zero-span traces have a time
+axis within each sweep and are not supported by this frequency waterfall.
+
+This displays the recorded spectrum sweeps directly. No FFT, STFT or assumed
+IQ sample rate is applied; SciPy is not required.
 
 ## Python API
 
@@ -105,8 +142,8 @@ decoder chooses layouts using recording headers. The model name does not prove
 which recording version or capture mode a particular session uses.
 
 Local tests covered version branches, endianness, timestamps, boundaries,
-state changes, multiple trace slots, zero span, malformed inputs, index checks
-and CSV/NPZ exports. Tests and synthetic fixtures are not included in this
+state changes, multiple trace slots, zero span, malformed inputs, index checks,
+CSV/NPZ exports, section seeking, plot selection and PNG output. Tests and synthetic fixtures are not included in this
 minimal publication. A complete finished N9917B GPSA session is needed for
 instrument validation; a matching CSV export would enable numerical comparison.
 

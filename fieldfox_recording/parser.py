@@ -302,6 +302,49 @@ class FieldFoxRecording:
         stride = trace_record_size(self.states[0])
         return sum(p.stat().st_size // stride for p in self.trace_files)
 
+    def iter_sweeps(self, start: int = 0, stop: int | None = None, step: int = 1) -> Iterator[Sweep]:
+        """Seek directly to a section, checking each selected record.
+
+        Start is inclusive, stop exclusive, and both are zero-based sweep
+        indices. Records outside the selection are not read or validated;
+        use ordinary iteration or inspect for full-session verification.
+        """
+        stop = len(self) if stop is None else stop
+        if not 0 <= start <= stop <= len(self) or step < 1:
+            raise RecordingError(f"Require 0 <= start <= stop <= {len(self)} and step >= 1")
+        stride = trace_record_size(self.states[0])
+        index, base = start, 0
+        previous_state = -1
+        for path in self.trace_files:
+            end = base + path.stat().st_size // stride
+            if index >= stop:
+                return
+            if index >= end:
+                base = end
+                continue
+            with path.open("rb") as stream:
+                while index < min(end, stop):
+                    offset = (index - base) * stride
+                    stream.seek(offset)
+                    data = stream.read(stride)
+                    if len(data) != stride:
+                        raise RecordingError(f"{path}: short read at byte {offset}")
+                    state_id = struct.unpack_from("<H", data, 2)[0]
+                    if state_id >= len(self.states):
+                        raise RecordingError(f"{path}:{offset}: missing state {state_id}")
+                    state = self.states[state_id]
+                    sweep = parse_trace(data, state)
+                    if sweep.trace_id != index:
+                        raise RecordingError(f"{path}:{offset}: expected trace {index}, got {sweep.trace_id}")
+                    if state_id < previous_state or index < state.first_trace_id:
+                        raise RecordingError(f"{path}:{offset}: inconsistent state/trace ordering")
+                    if state_id + 1 < len(self.states) and index >= self.states[state_id+1].first_trace_id:
+                        raise RecordingError(f"{path}:{offset}: trace uses an outdated state")
+                    previous_state = state_id
+                    yield Sweep(**(vars(sweep) | {"source": str(path), "offset": offset}))
+                    index += step
+            base = end
+
     @property
     def metadata(self) -> dict[str, Any]:
         return {"format": "FieldFox GPSA Record/Playback", "validation": "static reconstruction; instrument compatibility not yet validated",
