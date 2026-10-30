@@ -1,4 +1,4 @@
-"""Select and view recorded GPSA sweeps as a Matplotlib waterfall.
+"""Select and view recorded GPSA/RTSA spectrum traces as a Matplotlib waterfall.
 
 The recording already supplies power versus frequency. No FFT, STFT,
 resampling or invented IQ/sample rate is applied to the stored values.
@@ -124,7 +124,7 @@ def plot_section(
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Shared options for the package CLI and standalone viewer script."""
-    parser.add_argument("path", help="Complete GPSA recording session directory")
+    parser.add_argument("path", help="Complete GPSA/RTSA trace recording session directory")
     parser.add_argument("--start-sweep", type=int, default=0, help="First sweep index, inclusive (default 0)")
     parser.add_argument("--stop-sweep", type=int, help="Last sweep index, exclusive (default session end)")
     parser.add_argument("--step", type=int, default=1, help="Read every Nth sweep (default 1)")
@@ -165,7 +165,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="View a section of GPSA power sweeps as a spectrogram/waterfall")
+    parser = argparse.ArgumentParser(description="View GPSA/RTSA recorded power traces as a spectrogram/waterfall")
     add_arguments(parser)
     args = parser.parse_args(argv)
     try:

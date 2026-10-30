@@ -1,4 +1,4 @@
-"""GPSA binary layouts recovered from Utility.dll als/alt, Core.dll apf/aqb.
+"""GPSA/RTSA layouts recovered from Utility.dll als/alt and Data Link playback.
 
 This is static parser reconstruction, not validation against instrument data.
 See README.md for usage and validation status.
@@ -19,6 +19,7 @@ STATE_RECORD_SIZE = 104  # als.qp(), independent of version
 SUPPORTED_VERSIONS = range(1, 19)  # adg.oq writes 18; older branches in als/alt.qm
 MAX_DOTNET_TICKS = 3155378975999999999
 MAX_VALUES_PER_RECORD = 10_000_000  # allocation guard, not an instrument limit
+APPLICATION_NAMES = {1: "GPSA", 2: "RTSA"}  # SaRpApplication enum
 
 
 class RecordingError(ValueError):
@@ -26,7 +27,7 @@ class RecordingError(ValueError):
 
 
 class UnsupportedFormatError(RecordingError):
-    """Input has no supported GPSA layout or needs unsupported interpretation."""
+    """Input has no supported trace layout or needs unsupported interpretation."""
 
 
 def ticks_to_iso(ticks: int) -> str:
@@ -66,6 +67,8 @@ class State:
 
     @property
     def time_axis_s(self) -> NDArray[np.float64]:
+        if self.application != 1:
+            raise UnsupportedFormatError("Only GPSA zero-span time-axis semantics have been verified")
         if self.span_hz != 0:
             raise UnsupportedFormatError("Frequency scan has a frequency axis; use frequency_hz.")
         return np.linspace(self.settings["trigger_delay_s_raw"],
@@ -73,6 +76,7 @@ class State:
 
     def as_dict(self) -> dict[str, Any]:
         return {k: v for k, v in vars(self).items() if k != "raw_header"} | {
+            "application_name": APPLICATION_NAMES.get(self.application, "UNKNOWN"),
             "timestamp": ticks_to_iso(self.ticks), "raw_header_hex": self.raw_header.hex()}
 
 
@@ -142,6 +146,16 @@ def trace_record_size(state: State) -> int:
     return (44 if state.version >= 4 else 32) + 4 * state.value_count
 
 
+def _check_trace_support(state: State) -> None:
+    """Limit semantic decoding to recorded scalar power blocks evidenced in code."""
+    if state.application not in APPLICATION_NAMES:
+        raise UnsupportedFormatError(f"Unsupported application {state.application}; GPSA=1, RTSA=2. Use inspect for state bytes.")
+    if state.application == 2 and state.trace_count != 1:
+        raise UnsupportedFormatError("RTSA records with multiple data blocks require unverified block semantics; use inspect for metadata.")
+    if state.application == 2 and state.span_hz == 0:
+        raise UnsupportedFormatError("RTSA zero-span axis semantics have not been verified; use inspect for metadata.")
+
+
 @dataclass(frozen=True)
 class Sweep:
     trace_id: int
@@ -167,8 +181,7 @@ class Sweep:
 
 def parse_trace(data: bytes, state: State) -> Sweep:
     """Decode one alt record; no amplitude scale or offset is applied."""
-    if state.application != 1:
-        raise UnsupportedFormatError(f"Application {state.application} is not supported GPSA trace data (RTSA=2).")
+    _check_trace_support(state)
     expected = trace_record_size(state)
     if len(data) != expected:
         raise RecordingError(f"Trace record requires {expected} bytes, got {len(data)}")
@@ -205,6 +218,7 @@ def parse_trace(data: bytes, state: State) -> Sweep:
     values = np.frombuffer(data, dtype="<f4", count=state.value_count, offset=pos)
     split = state.points * state.trace_count
     header.update(reserved_int=reserved_int, parameter_raw=parameter,
+                  result_sweep_time_s=parameter if parameter >= 0 else None,
                   raw_header_hex=data[:pos].hex())
     return Sweep(trace_id, state, ticks, trace_mask,
                  values[:split].reshape(state.trace_count, state.points), values[split:], header)
@@ -237,7 +251,7 @@ def _records(path: Path, size: int) -> Iterator[tuple[int, bytes]]:
 
 
 class FieldFoxRecording:
-    """Lazy reader of complete GPSA sessions. Iteration uses bounded record reads."""
+    """Lazy reader of complete GPSA/RTSA trace sessions with bounded record reads."""
 
     def __init__(self, path: Path, states: list[State], trace_files: list[Path], indexes: list[dict[str, Any]]):
         self.path = path
@@ -249,10 +263,10 @@ class FieldFoxRecording:
     def open(cls, path: str | Path) -> FieldFoxRecording:
         root = Path(path)
         if not root.is_dir():
-            raise UnsupportedFormatError("Expected a complete session directory with STA and TRC stores; individual IQ/VITA-49/DLS files are unsupported.")
+            raise UnsupportedFormatError("Expected a complete GPSA/RTSA session directory with STA and TRC stores; individual IQ/VITA-49/DLS files are unsupported.")
         state_files, trace_files = _files(root, "STA"), _files(root, "TRC")
         if not state_files:
-            raise UnsupportedFormatError("No recognized STA store. Supply the complete GPSA session directory; IQ/VITA-49 captures are unsupported.")
+            raise UnsupportedFormatError("No recognized STA store. Supply the complete GPSA/RTSA session directory; IQ/VITA-49 captures are unsupported.")
         states = [parse_state(data) for p in state_files for _, data in _records(p, STATE_RECORD_SIZE)]
         if [s.state_id for s in states] != list(range(len(states))):
             raise RecordingError("State identifiers must be consecutive from zero")
@@ -260,8 +274,9 @@ class FieldFoxRecording:
             raise RecordingError("Session has state records but no trace store")
         first = states[0]
         for state in states:
-            if state.application != 1:
-                raise UnsupportedFormatError(f"Application {state.application} is unsupported; GPSA=1, RTSA=2. State bytes can be read by inspect.")
+            _check_trace_support(state)
+            if state.application != first.application:
+                raise UnsupportedFormatError("Changing application within one recording session is unsupported")
             if (state.version, state.points, state.trace_count, state.auxiliary_count) != (first.version, first.points, first.trace_count, first.auxiliary_count):
                 raise UnsupportedFormatError("Changing record dimensions/version within a session requires an unverified storage layout")
         stride = trace_record_size(first)
@@ -347,7 +362,10 @@ class FieldFoxRecording:
 
     @property
     def metadata(self) -> dict[str, Any]:
-        return {"format": "FieldFox GPSA Record/Playback", "validation": "static reconstruction; instrument compatibility not yet validated",
+        application = self.states[0].application
+        return {"format": f"FieldFox {APPLICATION_NAMES[application]} Record/Playback", "validation": "static reconstruction; instrument compatibility not yet validated",
+                "application": application, "application_name": APPLICATION_NAMES[application],
+                "recording_content": "recorded scalar spectrum traces",
                 "version": self.states[0].version, "n_sweeps": len(self), "n_points": self.states[0].points,
                 "trace_count": self.states[0].trace_count, "auxiliary_count": self.states[0].auxiliary_count,
                 "trace_stride_bytes": trace_record_size(self.states[0]), "power_unit": "dBm",

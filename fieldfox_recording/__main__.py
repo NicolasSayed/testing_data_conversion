@@ -8,11 +8,11 @@ from .parser import FieldFoxRecording, RecordingError, inspect_path
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Independent FieldFox GPSA recording decoder (static reconstruction)")
+    parser = argparse.ArgumentParser(description="Independent FieldFox GPSA/RTSA trace decoder (static reconstruction)")
     sub = parser.add_subparsers(dest="command", required=True)
     inspect = sub.add_parser("inspect", help="Inspect file prefixes, states and trace boundaries")
     inspect.add_argument("path")
-    export = sub.add_parser("export", help="Export a complete GPSA session")
+    export = sub.add_parser("export", help="Export a complete GPSA/RTSA trace session")
     export.add_argument("path")
     export.add_argument("--format", choices=["csv", "npz"], required=True)
     export.add_argument("--output", required=True)

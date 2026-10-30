@@ -1,14 +1,21 @@
 # testing_data_conversion
 
-Independent Python decoder for FieldFox SA/GPSA Record/Playback sessions,
+Independent Python decoder for FieldFox SA/GPSA and RTSA recorded trace sessions,
 targeting recordings from a **Keysight N9917B**. It reads session directories
 directly, exports CSV or NumPy NPZ, and views selected sections as Matplotlib
 spectrograms/waterfalls without installing or running Data Link.
 
 **Status: initial decoder reconstructed by static analysis.** Before publication,
-93 local synthetic tests passed and one real-recording integration test was
+111 local synthetic tests passed and one real-recording integration test was
 skipped. No N9917B recording or matching reference CSV was available, so actual
 instrument compatibility and export equivalence are still unvalidated.
+
+**Version 0.2.0 adds RTSA AutoSession trace decoding.** The original release
+rejected RTSA. The added path recognizes application code 2 in recording
+versions 8-18 and supports a single spectrum block with nonzero frequency span.
+RTSA sample compatibility is still pending: no real N9917B AutoSession has been
+tested. This reads recorded power-versus-frequency traces; raw IQ captures and
+density frames are separate formats.
 
 ## Install
 
@@ -107,7 +114,9 @@ timestamp and header metadata still use memory.
 
 ## Format summary
 
-- Reconstructed GPSA versions 1–18; little-endian 104-byte state records.
+- Reconstructed GPSA versions 1–18 and single-block nonzero-span RTSA versions
+  8–18; little-endian 104-byte state records. Metadata names GPSA or RTSA using
+  the recording's application field.
 - Trace records contain a 32-byte header before version 4, or a 44-byte header
   from version 4 onward, followed by float32 values. Dimensions come from the
   state header, including any auxiliary values.
@@ -115,7 +124,8 @@ timestamp and header metadata still use memory.
   `dTRC00000/00000000.TRC`, plus legacy flat `STA00000`/`TRC00000` stores.
 - Recovers frequency axes, state changes, trace masks and exact .NET timestamps.
   Timestamps have 100 ns resolution and are local/unspecified, not established UTC.
-- Uses the stored GPSA values as dBm without an additional scaling factor.
+- Uses the stored GPSA or supported RTSA spectrum values as dBm without an
+  additional scaling factor, matching the recovered playback read path.
 - Checks record sizes, IDs, state transitions and optional RPX index CRC-32
   checksums and record counts. Unknown fields are retained as raw data.
 
@@ -131,7 +141,8 @@ state ID. NPZ export needs temporary disk space near the uncompressed data size.
 
 ## Limits and validation
 
-RTSA, raw IQ/VITA-49 captures, DLS archives, unknown versions, incomplete
+Multiple-block or zero-span RTSA, raw IQ/VITA-49 captures, saved RTSA XML traces,
+density frames, DLS archives, unknown versions, incomplete
 partition sequences and changing record dimensions are unsupported. GPS
 coordinate scaling, auxiliary-value meanings and the mapping of trace slots to
 physical trace numbers remain unassigned. There is no recovered checksum for
@@ -143,8 +154,9 @@ which recording version or capture mode a particular session uses.
 
 Local tests covered version branches, endianness, timestamps, boundaries,
 state changes, multiple trace slots, zero span, malformed inputs, index checks,
-CSV/NPZ exports, section seeking, plot selection and PNG output. Tests and synthetic fixtures are not included in this
-minimal publication. A complete finished N9917B GPSA session is needed for
+CSV/NPZ exports, section seeking, plot selection, PNG output and the shared
+RTSA record layout. Tests and synthetic fixtures are not included in this
+minimal publication. A complete finished N9917B **RTSA AutoSession** is needed for
 instrument validation; a matching CSV export would enable numerical comparison.
 
 This repository contains only the independent decoding scripts, package metadata
