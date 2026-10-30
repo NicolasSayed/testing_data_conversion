@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fieldfox-recording"
+version = "0.1.0"
+description = "Independent FieldFox GPSA Record/Playback session decoder"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24"]
+
+[project.scripts]
+fieldfox-recording = "fieldfox_recording.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["fieldfox_recording*"]
